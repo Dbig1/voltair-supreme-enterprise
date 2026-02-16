@@ -7,81 +7,59 @@ on:
   workflow_dispatch:
 
 jobs:
-  supreme-continuous:
+  supreme-execution:
     runs-on: ubuntu-latest
-    env:
-      NODE_VERSION: '20'
-      PUBLISH_DIR: './_site'
-      
+
     steps:
-      # 1️⃣ Checkout repository
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 2️⃣ Detect new zip or config changes
-      - name: Detect VoltAir updates
-        id: detect_changes
-        run: |
-          echo "Checking for new voltair-supreme-repo.zip or _config.yml changes..."
-          git fetch origin main
-          NEW_CHANGES=$(git diff --name-only HEAD origin/main | grep -E 'voltair-supreme-repo.zip|_config.yml')
-          echo "changes=$NEW_CHANGES" >> $GITHUB_ENV
-          if [ -z "$NEW_CHANGES" ]; then
-            echo "No relevant updates detected. Continuing with full stack execution."
-          else
-            echo "Detected VoltAir updates: $NEW_CHANGES"
-            echo "Applying updates..."
-            git config --global user.name "VoltAir Auto-Merge Bot"
-            git config --global user.email "voltair-bot@voltairglobalhub.com"
-            git pull origin main
-            git add .
-            git commit -m "Auto-merge VoltAir Supreme updates [skip ci]" || echo "Nothing to commit"
-            git push origin main
-          fi
-
-      # 3️⃣ Set up Docker for Jekyll
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      # 4️⃣ Build Jekyll site via Docker
-      - name: Build Jekyll site
-        run: |
-          docker run --rm -v ${{ github.workspace }}:/srv/jekyll -p 4000:4000 jekyll/jekyll:4.3 jekyll build
-
-      # 5️⃣ Generate SLSA3 Provenance
-      - name: Generate SLSA3 Provenance
-        uses: github/slsa-generic-generator@v1
-        with:
-          output-file: .github/slsa/provenance.json
-
-      # 6️⃣ Set up Node.js
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org/'
+          node-version: '20'
 
-      # 7️⃣ Install Node.js dependencies
-      - name: Install dependencies
-        run: npm install
+      - name: Validate VoltAir ZIP exists
+        run: |
+          if [ ! -f "voltair-supreme-repo.zip" ]; then
+            echo "❌ voltair-supreme-repo.zip not found!"
+            exit 1
+          fi
+          echo "✅ ZIP found."
 
-      # 8️⃣ Run Node.js tests
-      - name: Run tests
-        run: npm test
+      - name: Unpack VoltAir ZIP
+        run: |
+          unzip -o voltair-supreme-repo.zip -d voltair-supreme
+          echo "✅ Unpacked to ./voltair-supreme"
 
-      # 9️⃣ Publish Node.js package
-      - name: Publish Node.js package
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Validate Required Files
+        run: |
+          REQUIRED_FILES=("index.html" "main.js" "config.json")
+          for f in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "./voltair-supreme/$f" ]; then
+              echo "❌ Missing required file: $f"
+              exit 1
+            fi
+          done
+          echo "✅ All required files present."
 
-      # 🔟 Deploy Jekyll site to GitHub Pages
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v5
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ${{ env.PUBLISH_DIR }}
+      - name: Install Dependencies
+        run: |
+          cd voltair-supreme
+          if [ -f package.json ]; then
+            npm install
+            echo "✅ Dependencies installed."
+          else
+            echo "⚠️ No package.json found, skipping npm install."
+          fi
 
-      # 1️⃣1️⃣ Completion confirmation
-      - name: VoltAir Supreme Execution Complete
-        run: echo "⚡ VoltAir Supreme Continuous Execution completed successfully! All phases executed."
+      - name: Run VoltAir Supreme Execution
+        run: |
+          cd voltair-supreme
+          if [ -f main.js ]; then
+            node main.js
+            echo "⚡ VoltAir Supreme executed successfully!"
+          else
+            echo "❌ main.js missing, cannot execute!"
+            exit 1
+          fi
